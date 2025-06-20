@@ -1,5 +1,6 @@
 
 import { supabase } from '../lib/supabase';
+import { User } from '../types';
 
 export const authService = {
   async signUp(email: string, password: string, username: string) {
@@ -11,6 +12,7 @@ export const authService = {
       });
       
       if (authError) {
+        console.error('Auth error during signup:', authError);
         throw authError;
       }
       
@@ -29,6 +31,7 @@ export const authService = {
         });
         
       if (profileError) {
+        console.error('Profile creation error:', profileError);
         throw profileError;
       }
       
@@ -47,6 +50,7 @@ export const authService = {
       });
       
       if (error) {
+        console.error('Sign in error:', error);
         throw error;
       }
       
@@ -62,6 +66,7 @@ export const authService = {
       const { error } = await supabase.auth.signOut();
       
       if (error) {
+        console.error('Sign out error:', error);
         throw error;
       }
       
@@ -79,6 +84,7 @@ export const authService = {
       });
       
       if (error) {
+        console.error('Reset password error:', error);
         throw error;
       }
       
@@ -89,34 +95,59 @@ export const authService = {
     }
   },
 
-  async getCurrentUser() {
+  async getCurrentUser(): Promise<User | null> {
     try {
-      const { data, error } = await supabase.auth.getUser();
+      // First get the auth user
+      const { data: authData, error: authError } = await supabase.auth.getUser();
       
-      if (error) {
-        console.error('Get current user error:', error);
+      if (authError) {
+        console.error('Get current user auth error:', authError);
         return null;
       }
       
-      if (!data.user) {
+      if (!authData.user) {
         return null;
       }
       
-      // Get the user's profile
-      const { data: profile, error: profileError } = await supabase
+      // Then get the profile data
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', data.user.id)
+        .eq('id', authData.user.id)
         .single();
         
       if (profileError) {
         console.error('Get profile error:', profileError);
+        // If profile doesn't exist but auth user does, create a default profile
+        if (profileError.code === 'PGRST116') {
+          const username = authData.user.email?.split('@')[0] || 'user';
+          const { data: newProfile, error: createError } = await supabase
+            .from('profiles')
+            .insert({
+              id: authData.user.id,
+              username,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+            
+          if (createError) {
+            console.error('Create profile error:', createError);
+            return null;
+          }
+          
+          return {
+            ...authData.user,
+            ...newProfile
+          };
+        }
         return null;
       }
       
       return {
-        ...data.user,
-        ...profile
+        ...authData.user,
+        ...profileData
       };
     } catch (error) {
       console.error('Get current user error:', error);
