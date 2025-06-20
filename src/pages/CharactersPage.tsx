@@ -1,11 +1,12 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { characterService } from '../services/characterService';
 import { seriesService } from '../services/seriesService';
 import { Character } from '../types';
 import { Button } from '../components/ui/Button';
+import { supabase } from '../lib/supabase';
 
 const CharactersPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -16,18 +17,47 @@ const CharactersPage: React.FC = () => {
     seriesParam ? parseInt(seriesParam) : null
   );
   const [filter, setFilter] = useState<string>('all');
-
-  // Fetch characters
-  const { data: characters, isLoading: charactersLoading } = useQuery({
-    queryKey: ['characters', selectedSeries],
-    queryFn: () => characterService.getAllCharacters(selectedSeries || undefined)
-  });
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // Fetch series for filtering
   const { data: allSeries, isLoading: seriesLoading } = useQuery({
     queryKey: ['series'],
     queryFn: seriesService.getAllSeries
   });
+
+  // Fetch characters directly from Supabase
+  useEffect(() => {
+    const fetchCharacters = async () => {
+      setLoading(true);
+      try {
+        let query = supabase
+          .from('characters')
+          .select(`
+            *,
+            series:series_id(id, name, color_code)
+          `);
+          
+        if (selectedSeries) {
+          query = query.eq('series_id', selectedSeries);
+        }
+        
+        const { data, error } = await query.order('name');
+        
+        if (error) {
+          throw error;
+        }
+        
+        setCharacters(data || []);
+      } catch (error) {
+        console.error('Error fetching characters:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCharacters();
+  }, [selectedSeries]);
 
   // Filter and search characters
   const filteredCharacters = characters?.filter(character => {
@@ -52,7 +82,7 @@ const CharactersPage: React.FC = () => {
     return matchesSearch && matchesFilter;
   });
 
-  const isLoading = charactersLoading || seriesLoading;
+  const isLoading = loading || seriesLoading;
 
   return (
     <div className="space-y-8">

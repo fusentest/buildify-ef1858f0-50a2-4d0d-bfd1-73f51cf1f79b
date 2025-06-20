@@ -1,25 +1,118 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { characterService } from '../services/characterService';
 import { Button } from '../components/ui/Button';
 import { getRelationshipColor, getTagColor } from '../lib/utils';
+import { supabase } from '../lib/supabase';
+import { Character, Relationship, LoreEntry } from '../types';
 
 const CharacterDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  
-  const { data: character, isLoading } = useQuery({
-    queryKey: ['character', id],
-    queryFn: () => characterService.getCharacter(parseInt(id!)),
-    enabled: !!id
-  });
+  const [character, setCharacter] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (isLoading) {
+  useEffect(() => {
+    const fetchCharacterDetails = async () => {
+      if (!id) return;
+      
+      setLoading(true);
+      try {
+        // Fetch character basic info
+        const { data: characterData, error: characterError } = await supabase
+          .from('characters')
+          .select(`
+            *,
+            series:series_id(id, name, color_code)
+          `)
+          .eq('id', id)
+          .single();
+          
+        if (characterError) throw characterError;
+        
+        // Fetch relationships where this character is character1
+        const { data: relationships1, error: rel1Error } = await supabase
+          .from('relationships')
+          .select(`
+            id,
+            relationship_type,
+            description,
+            character2:character2_id(id, name, portrait_url, series_id, series:series_id(id, name, color_code))
+          `)
+          .eq('character1_id', id);
+          
+        if (rel1Error) throw rel1Error;
+        
+        // Fetch relationships where this character is character2
+        const { data: relationships2, error: rel2Error } = await supabase
+          .from('relationships')
+          .select(`
+            id,
+            relationship_type,
+            description,
+            character1:character1_id(id, name, portrait_url, series_id, series:series_id(id, name, color_code))
+          `)
+          .eq('character2_id', id);
+          
+        if (rel2Error) throw rel2Error;
+        
+        // Format relationships
+        const formattedRelationships = [
+          ...relationships1.map((r: any) => ({
+            id: r.id,
+            relationshipType: r.relationship_type,
+            description: r.description,
+            character: r.character2,
+            direction: 'outgoing'
+          })),
+          ...relationships2.map((r: any) => ({
+            id: r.id,
+            relationshipType: r.relationship_type,
+            description: r.description,
+            character: r.character1,
+            direction: 'incoming'
+          }))
+        ];
+        
+        // Fetch lore entries related to this character
+        const { data: loreEntries, error: loreError } = await supabase
+          .from('character_lore_entries')
+          .select(`
+            lore_entry:lore_entry_id(
+              id, 
+              title, 
+              content, 
+              tags, 
+              created_at,
+              series:series_id(id, name, color_code)
+            )
+          `)
+          .eq('character_id', id);
+          
+        if (loreError) throw loreError;
+        
+        // Combine all data
+        setCharacter({
+          ...characterData,
+          relationships: formattedRelationships,
+          loreEntries: loreEntries.map((entry: any) => entry.lore_entry)
+        });
+      } catch (err: any) {
+        console.error('Error fetching character details:', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCharacterDetails();
+  }, [id]);
+
+  if (loading) {
     return <div className="text-center py-8">Loading character data...</div>;
   }
 
-  if (!character) {
+  if (error || !character) {
     return (
       <div className="text-center py-8">
         <h2 className="text-2xl font-bold mb-4">Character Not Found</h2>
@@ -32,8 +125,8 @@ const CharacterDetailPage: React.FC = () => {
   }
 
   // Group relationships by type
-  const relationshipsByType: Record<string, typeof character.relationships> = {};
-  character.relationships.forEach(rel => {
+  const relationshipsByType: Record<string, Relationship[]> = {};
+  character.relationships.forEach((rel: Relationship) => {
     if (!relationshipsByType[rel.relationshipType]) {
       relationshipsByType[rel.relationshipType] = [];
     }
@@ -182,7 +275,7 @@ const CharacterDetailPage: React.FC = () => {
         
         {character.loreEntries && character.loreEntries.length > 0 ? (
           <div className="space-y-4">
-            {character.loreEntries.map(entry => (
+            {character.loreEntries.map((entry: LoreEntry) => (
               <Link 
                 key={entry.id} 
                 to={`/lore/${entry.id}`}
