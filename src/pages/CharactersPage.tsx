@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { characterService } from '../services/characterService';
 import { seriesService } from '../services/seriesService';
@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 
 const CharactersPage: React.FC = () => {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const seriesParam = searchParams.get('series');
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -19,6 +20,11 @@ const CharactersPage: React.FC = () => {
   const [filter, setFilter] = useState<string>('all');
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Filter form state
+  const [formSearchTerm, setFormSearchTerm] = useState(searchTerm);
+  const [formSelectedSeries, setFormSelectedSeries] = useState<number | null>(selectedSeries);
+  const [formFilter, setFormFilter] = useState<string>(filter);
 
   // Fetch series for filtering
   const { data: allSeries, isLoading: seriesLoading } = useQuery({
@@ -59,6 +65,13 @@ const CharactersPage: React.FC = () => {
     fetchCharacters();
   }, [selectedSeries]);
 
+  // Initialize form values from current filters
+  useEffect(() => {
+    setFormSearchTerm(searchTerm);
+    setFormSelectedSeries(selectedSeries);
+    setFormFilter(filter);
+  }, [searchTerm, selectedSeries, filter]);
+
   // Filter and search characters
   const filteredCharacters = characters?.filter(character => {
     // Apply search term filter
@@ -81,6 +94,32 @@ const CharactersPage: React.FC = () => {
     
     return matchesSearch && matchesFilter;
   });
+
+  const handleApplyFilters = () => {
+    setSearchTerm(formSearchTerm);
+    setSelectedSeries(formSelectedSeries);
+    setFilter(formFilter);
+    
+    // Update URL with filters
+    const params = new URLSearchParams();
+    if (formSelectedSeries) {
+      params.set('series', formSelectedSeries.toString());
+    }
+    if (formFilter !== 'all') {
+      params.set('type', formFilter);
+    }
+    if (formSearchTerm) {
+      params.set('search', formSearchTerm);
+    }
+    
+    navigate({ search: params.toString() });
+  };
+
+  const handleClearFilters = () => {
+    setFormSearchTerm('');
+    setFormSelectedSeries(null);
+    setFormFilter('all');
+  };
 
   const isLoading = loading || seriesLoading;
 
@@ -105,8 +144,8 @@ const CharactersPage: React.FC = () => {
             id="search"
             placeholder="Search by name, alias, or description..."
             className="w-full p-2 border rounded-md"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            value={formSearchTerm}
+            onChange={(e) => setFormSearchTerm(e.target.value)}
           />
         </div>
         
@@ -119,8 +158,8 @@ const CharactersPage: React.FC = () => {
             <select
               id="series"
               className="w-full p-2 border rounded-md"
-              value={selectedSeries || ''}
-              onChange={(e) => setSelectedSeries(e.target.value ? parseInt(e.target.value) : null)}
+              value={formSelectedSeries || ''}
+              onChange={(e) => setFormSelectedSeries(e.target.value ? parseInt(e.target.value) : null)}
             >
               <option value="">All Series</option>
               {allSeries?.map(series => (
@@ -139,8 +178,8 @@ const CharactersPage: React.FC = () => {
             <select
               id="type"
               className="w-full p-2 border rounded-md"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              value={formFilter}
+              onChange={(e) => setFormFilter(e.target.value)}
             >
               <option value="all">All Types</option>
               <option value="robot-masters">Robot Masters</option>
@@ -150,6 +189,88 @@ const CharactersPage: React.FC = () => {
             </select>
           </div>
         </div>
+        
+        {/* Filter action buttons */}
+        <div className="flex justify-end gap-2">
+          <Button 
+            variant="outline" 
+            onClick={handleClearFilters}
+          >
+            Clear Filters
+          </Button>
+          <Button 
+            variant="megamanBlue" 
+            onClick={handleApplyFilters}
+          >
+            Apply Filters
+          </Button>
+        </div>
+      </div>
+
+      {/* Filter tags display */}
+      {(searchTerm || selectedSeries || filter !== 'all') && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-sm font-medium text-gray-700">Active filters:</span>
+          
+          {searchTerm && (
+            <span className="bg-blue-100 text-blue-800 text-sm px-3 py-1 rounded-full flex items-center">
+              Search: {searchTerm}
+              <button 
+                onClick={() => setSearchTerm('')}
+                className="ml-2 text-blue-600 hover:text-blue-800"
+              >
+                &times;
+              </button>
+            </span>
+          )}
+          
+          {selectedSeries && allSeries && (
+            <span className="bg-green-100 text-green-800 text-sm px-3 py-1 rounded-full flex items-center">
+              Series: {allSeries.find(s => s.id === selectedSeries)?.name}
+              <button 
+                onClick={() => setSelectedSeries(null)}
+                className="ml-2 text-green-600 hover:text-green-800"
+              >
+                &times;
+              </button>
+            </span>
+          )}
+          
+          {filter !== 'all' && (
+            <span className="bg-purple-100 text-purple-800 text-sm px-3 py-1 rounded-full flex items-center">
+              Type: {filter.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+              <button 
+                onClick={() => setFilter('all')}
+                className="ml-2 text-purple-600 hover:text-purple-800"
+              >
+                &times;
+              </button>
+            </span>
+          )}
+          
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              setSearchTerm('');
+              setSelectedSeries(null);
+              setFilter('all');
+              setFormSearchTerm('');
+              setFormSelectedSeries(null);
+              setFormFilter('all');
+              navigate('/characters');
+            }}
+          >
+            Clear All
+          </Button>
+        </div>
+      )}
+
+      {/* Character count */}
+      <div className="text-sm text-gray-600">
+        {!isLoading && (
+          <p>Showing {filteredCharacters?.length || 0} characters</p>
+        )}
       </div>
 
       {/* Character grid */}
@@ -171,6 +292,9 @@ const CharactersPage: React.FC = () => {
               setSearchTerm('');
               setSelectedSeries(null);
               setFilter('all');
+              setFormSearchTerm('');
+              setFormSelectedSeries(null);
+              setFormFilter('all');
             }}
           >
             Clear Filters
