@@ -26,8 +26,9 @@ const SignInPage: React.FC = () => {
       setError(null);
       await signIn(email, password);
       navigate('/');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign in');
+    } catch (err: any) {
+      console.error('Sign in error:', err);
+      setError(err?.message || 'Invalid email or password');
     } finally {
       setIsLoading(false);
     }

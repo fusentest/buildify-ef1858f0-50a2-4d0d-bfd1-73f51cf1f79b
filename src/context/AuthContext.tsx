@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/authService';
 import { User } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -31,14 +32,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
+    // Set up auth state change listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (session?.user) {
+          const currentUser = await authService.getCurrentUser();
+          setUser(currentUser);
+        } else {
+          setUser(null);
+        }
+        setLoading(false);
+      }
+    );
+
     checkUser();
+
+    // Cleanup subscription
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signUp = async (email: string, password: string, username: string) => {
     try {
       setLoading(true);
-      const data = await authService.signUp(email, password, username);
-      setUser(data.user);
+      await authService.signUp(email, password, username);
+      // The auth state change listener will update the user
+    } catch (error) {
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -47,8 +68,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signIn = async (email: string, password: string) => {
     try {
       setLoading(true);
-      const data = await authService.signIn(email, password);
-      setUser(data.user);
+      await authService.signIn(email, password);
+      // The auth state change listener will update the user
+    } catch (error) {
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -59,6 +82,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(true);
       await authService.signOut();
       setUser(null);
+    } catch (error) {
+      throw error;
     } finally {
       setLoading(false);
     }

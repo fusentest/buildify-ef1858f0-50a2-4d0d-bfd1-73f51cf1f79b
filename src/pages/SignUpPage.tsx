@@ -38,8 +38,9 @@ const SignUpPage: React.FC = () => {
       setError(null);
       await signUp(email, password, username);
       navigate('/');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign up');
+    } catch (err: any) {
+      console.error('Sign up error:', err);
+      setError(err?.message || 'Failed to sign up. Please try again.');
     } finally {
       setIsLoading(false);
     }
