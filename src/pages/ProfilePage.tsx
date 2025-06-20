@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../lib/supabase';
+import { profileService } from '../services/profileService';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { formatDate } from '../lib/utils';
@@ -11,13 +11,13 @@ const ProfilePage: React.FC = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState(user?.username || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -27,65 +27,47 @@ const ProfilePage: React.FC = () => {
     }
   }, [user]);
 
-  // Fetch user's lore entries
-  const { data: loreEntries, isLoading: loreLoading } = useQuery({
-    queryKey: ['userLoreEntries', user?.id],
-    queryFn: async () => {
-      if (!user) return [];
-      
-      const { data, error } = await supabase
-        .from('lore_entries')
-        .select(`
-          *,
-          series:series_id(id, name, color_code)
-        `)
-        .eq('creator_id', user.id)
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
-      return data;
-    },
+  // Fetch user's contributions
+  const { data: contributions, isLoading: contributionsLoading } = useQuery({
+    queryKey: ['userContributions', user?.id],
+    queryFn: () => profileService.getUserContributions(user!.id),
     enabled: !!user
   });
 
-  // Fetch user's fan theories
-  const { data: theories, isLoading: theoriesLoading } = useQuery({
-    queryKey: ['userTheories', user?.id],
-    queryFn: async () => {
-      if (!user) return [];
+  const updateProfileMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error('User not authenticated');
       
-      const { data, error } = await supabase
-        .from('fan_theories')
-        .select('*')
-        .eq('creator_id', user.id)
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user
-  });
-
-  // Fetch user's comments
-  const { data: comments, isLoading: commentsLoading } = useQuery({
-    queryKey: ['userComments', user?.id],
-    queryFn: async () => {
-      if (!user) return [];
+      let newAvatarUrl = avatarUrl;
       
-      const { data, error } = await supabase
-        .from('comments')
-        .select(`
-          *,
-          lore_entry:lore_entry_id(id, title),
-          fan_theory:fan_theory_id(id, title)
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
-      return data;
+      // Upload new avatar if changed
+      if (avatarFile) {
+        const uploadedUrl = await profileService.uploadAvatar(user.id, avatarFile);
+        if (uploadedUrl) {
+          newAvatarUrl = uploadedUrl;
+        }
+      }
+      
+      return profileService.updateProfile(user.id, {
+        username,
+        bio,
+        avatar_url: newAvatarUrl
+      });
     },
-    enabled: !!user
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['user'] });
+      setIsEditing(false);
+      
+      // Update local user state
+      if (user && data) {
+        user.username = data.username;
+        user.bio = data.bio;
+        user.avatar_url = data.avatar_url;
+      }
+    },
+    onError: (error) => {
+      setError(error instanceof Error ? error.message : 'Failed to update profile');
+    }
   });
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -109,81 +91,15 @@ const ProfilePage: React.FC = () => {
     }
   };
 
-  const uploadAvatar = async (): Promise<string | null> => {
-    if (!avatarFile || !user) return null;
-    
-    const fileExt = avatarFile.name.split('.').pop();
-    const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-    const filePath = `avatars/${fileName}`;
-    
-    const { error: uploadError } = await supabase.storage
-      .from('user-content')
-      .upload(filePath, avatarFile);
-      
-    if (uploadError) {
-      throw uploadError;
-    }
-    
-    const { data } = supabase.storage
-      .from('user-content')
-      .getPublicUrl(filePath);
-      
-    return data.publicUrl;
-  };
-
-  const updateProfileMutation = useMutation({
-    mutationFn: async () => {
-      if (!user) throw new Error('User not authenticated');
-      
-      let newAvatarUrl = avatarUrl;
-      
-      // Upload new avatar if changed
-      if (avatarFile) {
-        const uploadedUrl = await uploadAvatar();
-        if (uploadedUrl) {
-          newAvatarUrl = uploadedUrl;
-        }
-      }
-      
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          username,
-          bio,
-          avatar_url: newAvatarUrl,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', user.id);
-        
-      if (error) throw error;
-      
-      return { username, bio, avatar_url: newAvatarUrl };
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['user'] });
-      setIsEditing(false);
-      
-      // Update local user state
-      if (user) {
-        user.username = data.username;
-        user.bio = data.bio;
-        user.avatar_url = data.avatar_url;
-      }
-    },
-    onError: (error) => {
-      setError(error instanceof Error ? error.message : 'Failed to update profile');
-    }
-  });
-
   const handleSaveProfile = async () => {
-    setIsLoading(true);
     setError(null);
     
-    try {
-      await updateProfileMutation.mutateAsync();
-    } finally {
-      setIsLoading(false);
+    if (!username.trim()) {
+      setError('Username is required');
+      return;
     }
+    
+    updateProfileMutation.mutate();
   };
 
   const handleSignOut = async () => {
@@ -217,6 +133,7 @@ const ProfilePage: React.FC = () => {
 
   return (
     <div className="space-y-8">
+      {/* Profile Header */}
       <div className="bg-white rounded-lg shadow-lg p-6">
         <div className="flex justify-between items-start mb-6">
           <h1 className="text-3xl font-bold">Your Profile</h1>
@@ -226,15 +143,16 @@ const ProfilePage: React.FC = () => {
               <Button 
                 variant="outline" 
                 onClick={handleCancelEdit}
+                disabled={updateProfileMutation.isPending}
               >
                 Cancel
               </Button>
               <Button 
                 variant="megamanBlue" 
                 onClick={handleSaveProfile}
-                disabled={isLoading || updateProfileMutation.isPending}
+                disabled={updateProfileMutation.isPending}
               >
-                {isLoading || updateProfileMutation.isPending ? 'Saving...' : 'Save Changes'}
+                {updateProfileMutation.isPending ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           ) : (
@@ -371,6 +289,34 @@ const ProfilePage: React.FC = () => {
         </div>
       </div>
 
+      {/* User Stats */}
+      <div className="bg-white rounded-lg shadow-lg p-6">
+        <h2 className="text-xl font-semibold mb-4">Your Stats</h2>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-blue-50 p-4 rounded-lg text-center">
+            <span className="text-3xl font-bold text-blue-600">
+              {contributions?.loreEntries?.length || 0}
+            </span>
+            <p className="text-blue-800">Lore Entries</p>
+          </div>
+          
+          <div className="bg-red-50 p-4 rounded-lg text-center">
+            <span className="text-3xl font-bold text-red-600">
+              {contributions?.theories?.length || 0}
+            </span>
+            <p className="text-red-800">Theories</p>
+          </div>
+          
+          <div className="bg-purple-50 p-4 rounded-lg text-center">
+            <span className="text-3xl font-bold text-purple-600">
+              {contributions?.comments?.length || 0}
+            </span>
+            <p className="text-purple-800">Comments</p>
+          </div>
+        </div>
+      </div>
+
       {/* User's Contributions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Lore Entries */}
@@ -384,11 +330,11 @@ const ProfilePage: React.FC = () => {
             </Link>
           </div>
           
-          {loreLoading ? (
+          {contributionsLoading ? (
             <p className="text-center py-4">Loading your lore entries...</p>
-          ) : loreEntries && loreEntries.length > 0 ? (
+          ) : contributions?.loreEntries && contributions.loreEntries.length > 0 ? (
             <div className="space-y-4">
-              {loreEntries.map(entry => (
+              {contributions.loreEntries.map(entry => (
                 <Link 
                   key={entry.id} 
                   to={`/lore/${entry.id}`}
@@ -437,11 +383,11 @@ const ProfilePage: React.FC = () => {
             </Link>
           </div>
           
-          {theoriesLoading ? (
+          {contributionsLoading ? (
             <p className="text-center py-4">Loading your theories...</p>
-          ) : theories && theories.length > 0 ? (
+          ) : contributions?.theories && contributions.theories.length > 0 ? (
             <div className="space-y-4">
-              {theories.map(theory => (
+              {contributions.theories.map(theory => (
                 <Link 
                   key={theory.id} 
                   to={`/theories/${theory.id}`}
@@ -485,11 +431,11 @@ const ProfilePage: React.FC = () => {
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h2 className="text-xl font-semibold mb-4">Your Comments</h2>
         
-        {commentsLoading ? (
+        {contributionsLoading ? (
           <p className="text-center py-4">Loading your comments...</p>
-        ) : comments && comments.length > 0 ? (
+        ) : contributions?.comments && contributions.comments.length > 0 ? (
           <div className="space-y-4">
-            {comments.map(comment => (
+            {contributions.comments.map(comment => (
               <div key={comment.id} className="p-3 border rounded-lg">
                 <div className="flex justify-between items-start">
                   <div>
@@ -523,28 +469,6 @@ const ProfilePage: React.FC = () => {
             You haven't made any comments yet. Join the discussion on lore entries and theories!
           </p>
         )}
-      </div>
-
-      {/* User Stats */}
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-xl font-semibold mb-4">Your Stats</h2>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-blue-50 p-4 rounded-lg text-center">
-            <span className="text-3xl font-bold text-blue-600">{loreEntries?.length || 0}</span>
-            <p className="text-blue-800">Lore Entries</p>
-          </div>
-          
-          <div className="bg-red-50 p-4 rounded-lg text-center">
-            <span className="text-3xl font-bold text-red-600">{theories?.length || 0}</span>
-            <p className="text-red-800">Theories</p>
-          </div>
-          
-          <div className="bg-purple-50 p-4 rounded-lg text-center">
-            <span className="text-3xl font-bold text-purple-600">{comments?.length || 0}</span>
-            <p className="text-purple-800">Comments</p>
-          </div>
-        </div>
       </div>
     </div>
   );
