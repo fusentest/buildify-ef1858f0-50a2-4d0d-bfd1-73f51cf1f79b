@@ -90,32 +90,37 @@ export const authService = {
   },
 
   async getCurrentUser() {
-    const { data, error } = await supabase.auth.getUser();
-    
-    if (error) {
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      
+      if (error) {
+        console.error('Get current user error:', error);
+        return null;
+      }
+      
+      if (!data.user) {
+        return null;
+      }
+      
+      // Get the user's profile
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', data.user.id)
+        .single();
+        
+      if (profileError) {
+        console.error('Get profile error:', profileError);
+        return null;
+      }
+      
+      return {
+        ...data.user,
+        ...profile
+      };
+    } catch (error) {
       console.error('Get current user error:', error);
       return null;
     }
-    
-    if (!data.user) {
-      return null;
-    }
-    
-    // Get the user's profile
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', data.user.id)
-      .single();
-      
-    if (profileError) {
-      console.error('Get profile error:', profileError);
-      return null;
-    }
-    
-    return {
-      ...data.user,
-      ...profile
-    };
   }
 };
