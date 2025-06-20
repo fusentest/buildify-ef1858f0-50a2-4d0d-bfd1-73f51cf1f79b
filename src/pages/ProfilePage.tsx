@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
@@ -10,11 +10,22 @@ import { formatDate } from '../lib/utils';
 const ProfilePage: React.FC = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState(user?.username || '');
   const [bio, setBio] = useState(user?.bio || '');
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setUsername(user.username || '');
+      setBio(user.bio || '');
+      setAvatarUrl(user.avatar_url || '');
+    }
+  }, [user]);
 
   // Fetch user's lore entries
   const { data: loreEntries, isLoading: loreLoading } = useQuery({
@@ -55,29 +66,121 @@ const ProfilePage: React.FC = () => {
     enabled: !!user
   });
 
-  const handleSaveProfile = async () => {
-    if (!user) return;
+  // Fetch user's comments
+  const { data: comments, isLoading: commentsLoading } = useQuery({
+    queryKey: ['userComments', user?.id],
+    queryFn: async () => {
+      if (!user) return [];
+      
+      const { data, error } = await supabase
+        .from('comments')
+        .select(`
+          *,
+          lore_entry:lore_entry_id(id, title),
+          fan_theory:fan_theory_id(id, title)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+        
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user
+  });
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      
+      // Check file size (max 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        setError('Avatar image must be less than 2MB');
+        return;
+      }
+      
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        setError('File must be an image');
+        return;
+      }
+      
+      setAvatarFile(file);
+      setAvatarUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const uploadAvatar = async (): Promise<string | null> => {
+    if (!avatarFile || !user) return null;
     
-    try {
-      setIsLoading(true);
-      setError(null);
+    const fileExt = avatarFile.name.split('.').pop();
+    const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+    const filePath = `avatars/${fileName}`;
+    
+    const { error: uploadError } = await supabase.storage
+      .from('user-content')
+      .upload(filePath, avatarFile);
+      
+    if (uploadError) {
+      throw uploadError;
+    }
+    
+    const { data } = supabase.storage
+      .from('user-content')
+      .getPublicUrl(filePath);
+      
+    return data.publicUrl;
+  };
+
+  const updateProfileMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error('User not authenticated');
+      
+      let newAvatarUrl = avatarUrl;
+      
+      // Upload new avatar if changed
+      if (avatarFile) {
+        const uploadedUrl = await uploadAvatar();
+        if (uploadedUrl) {
+          newAvatarUrl = uploadedUrl;
+        }
+      }
       
       const { error } = await supabase
         .from('profiles')
         .update({
           username,
           bio,
+          avatar_url: newAvatarUrl,
           updated_at: new Date().toISOString()
         })
         .eq('id', user.id);
         
       if (error) throw error;
       
+      return { username, bio, avatar_url: newAvatarUrl };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['user'] });
       setIsEditing(false);
-      // Refresh the page to update the user context
-      window.location.reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update profile');
+      
+      // Update local user state
+      if (user) {
+        user.username = data.username;
+        user.bio = data.bio;
+        user.avatar_url = data.avatar_url;
+      }
+    },
+    onError: (error) => {
+      setError(error instanceof Error ? error.message : 'Failed to update profile');
+    }
+  });
+
+  const handleSaveProfile = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      await updateProfileMutation.mutateAsync();
     } finally {
       setIsLoading(false);
     }
@@ -86,6 +189,18 @@ const ProfilePage: React.FC = () => {
   const handleSignOut = async () => {
     await signOut();
     navigate('/');
+  };
+
+  const handleCancelEdit = () => {
+    // Reset form values to current user values
+    if (user) {
+      setUsername(user.username || '');
+      setBio(user.bio || '');
+      setAvatarUrl(user.avatar_url || '');
+    }
+    setAvatarFile(null);
+    setError(null);
+    setIsEditing(false);
   };
 
   if (!user) {
@@ -110,16 +225,16 @@ const ProfilePage: React.FC = () => {
             <div className="flex gap-2">
               <Button 
                 variant="outline" 
-                onClick={() => setIsEditing(false)}
+                onClick={handleCancelEdit}
               >
                 Cancel
               </Button>
               <Button 
                 variant="megamanBlue" 
                 onClick={handleSaveProfile}
-                disabled={isLoading}
+                disabled={isLoading || updateProfileMutation.isPending}
               >
-                {isLoading ? 'Saving...' : 'Save Changes'}
+                {isLoading || updateProfileMutation.isPending ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           ) : (
@@ -149,20 +264,52 @@ const ProfilePage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-1">
             <div className="flex flex-col items-center">
-              {user.avatar_url ? (
-                <img 
-                  src={user.avatar_url} 
-                  alt={user.username} 
-                  className="w-32 h-32 rounded-full mb-4"
-                />
+              {isEditing ? (
+                <div className="mb-4">
+                  <div className="relative w-32 h-32 group">
+                    {avatarUrl ? (
+                      <img 
+                        src={avatarUrl} 
+                        alt={username} 
+                        className="w-32 h-32 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-32 h-32 bg-gray-200 rounded-full flex items-center justify-center">
+                        <span className="text-4xl text-gray-500">{username.charAt(0).toUpperCase()}</span>
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-black bg-opacity-50 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                      <span className="text-white text-sm">Change Avatar</span>
+                    </div>
+                    <input 
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarChange}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 text-center mt-1">
+                    Click to upload a new avatar<br />(Max 2MB)
+                  </p>
+                </div>
               ) : (
-                <div className="w-32 h-32 bg-gray-200 rounded-full flex items-center justify-center mb-4">
-                  <span className="text-4xl text-gray-500">{user.username.charAt(0).toUpperCase()}</span>
+                <div className="mb-4">
+                  {avatarUrl ? (
+                    <img 
+                      src={avatarUrl} 
+                      alt={username} 
+                      className="w-32 h-32 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-32 h-32 bg-gray-200 rounded-full flex items-center justify-center">
+                      <span className="text-4xl text-gray-500">{username.charAt(0).toUpperCase()}</span>
+                    </div>
+                  )}
                 </div>
               )}
               
               {!isEditing ? (
-                <h2 className="text-xl font-semibold">{user.username}</h2>
+                <h2 className="text-xl font-semibold">{username}</h2>
               ) : (
                 <div className="w-full">
                   <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
@@ -331,6 +478,72 @@ const ProfilePage: React.FC = () => {
               </Link>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* User's Comments */}
+      <div className="bg-white rounded-lg shadow-lg p-6">
+        <h2 className="text-xl font-semibold mb-4">Your Comments</h2>
+        
+        {commentsLoading ? (
+          <p className="text-center py-4">Loading your comments...</p>
+        ) : comments && comments.length > 0 ? (
+          <div className="space-y-4">
+            {comments.map(comment => (
+              <div key={comment.id} className="p-3 border rounded-lg">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-gray-700">{comment.content}</p>
+                    <p className="text-sm text-gray-500 mt-1">{formatDate(comment.created_at)}</p>
+                  </div>
+                  <div>
+                    {comment.lore_entry && (
+                      <Link 
+                        to={`/lore/${comment.lore_entry.id}`}
+                        className="text-sm px-2 py-1 bg-blue-100 text-blue-800 rounded-full hover:bg-blue-200"
+                      >
+                        On: {comment.lore_entry.title}
+                      </Link>
+                    )}
+                    {comment.fan_theory && (
+                      <Link 
+                        to={`/theories/${comment.fan_theory.id}`}
+                        className="text-sm px-2 py-1 bg-red-100 text-red-800 rounded-full hover:bg-red-200"
+                      >
+                        On: {comment.fan_theory.title}
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-center py-4 text-gray-600">
+            You haven't made any comments yet. Join the discussion on lore entries and theories!
+          </p>
+        )}
+      </div>
+
+      {/* User Stats */}
+      <div className="bg-white rounded-lg shadow-lg p-6">
+        <h2 className="text-xl font-semibold mb-4">Your Stats</h2>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-blue-50 p-4 rounded-lg text-center">
+            <span className="text-3xl font-bold text-blue-600">{loreEntries?.length || 0}</span>
+            <p className="text-blue-800">Lore Entries</p>
+          </div>
+          
+          <div className="bg-red-50 p-4 rounded-lg text-center">
+            <span className="text-3xl font-bold text-red-600">{theories?.length || 0}</span>
+            <p className="text-red-800">Theories</p>
+          </div>
+          
+          <div className="bg-purple-50 p-4 rounded-lg text-center">
+            <span className="text-3xl font-bold text-purple-600">{comments?.length || 0}</span>
+            <p className="text-purple-800">Comments</p>
+          </div>
         </div>
       </div>
     </div>
