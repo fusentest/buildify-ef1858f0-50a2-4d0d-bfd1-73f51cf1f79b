@@ -36,12 +36,12 @@ const SignUpPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      console.log('Submitting sign up form...');
+      
       await signUp(email, password, username);
-      console.log('Sign up successful, navigating to home');
       navigate('/');
+      
     } catch (err: any) {
-      console.error('Sign up form submission error:', err);
+      console.error('Sign up error:', err);
       setError(err?.message || 'Failed to sign up. Please try again.');
     } finally {
       setIsLoading(false);

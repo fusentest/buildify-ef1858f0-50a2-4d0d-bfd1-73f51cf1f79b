@@ -24,12 +24,12 @@ const SignInPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      console.log('Submitting sign in form...');
+      
       await signIn(email, password);
-      console.log('Sign in successful, navigating to home');
       navigate('/');
+      
     } catch (err: any) {
-      console.error('Sign in form submission error:', err);
+      console.error('Sign in error:', err);
       setError(err?.message || 'Invalid email or password');
     } finally {
       setIsLoading(false);

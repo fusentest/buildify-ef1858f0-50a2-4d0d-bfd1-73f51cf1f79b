@@ -1,8 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authService } from '../services/authService';
+import { supabase, getCurrentUser } from '../lib/supabase';
 import { User } from '../types';
-import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -11,6 +10,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,14 +19,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Function to refresh user data
+  const refreshUser = async () => {
+    try {
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+      return currentUser;
+    } catch (error) {
+      console.error('Error refreshing user:', error);
+      return null;
+    }
+  };
+
   useEffect(() => {
     // Check if user is already logged in
     const checkUser = async () => {
       try {
-        console.log('Checking for current user...');
-        const currentUser = await authService.getCurrentUser();
-        console.log('Current user check result:', currentUser ? 'User found' : 'No user');
-        setUser(currentUser);
+        setLoading(true);
+        await refreshUser();
       } catch (error) {
         console.error('Error checking user:', error);
       } finally {
@@ -37,19 +47,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Set up auth state change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event, session ? 'Session exists' : 'No session');
+        console.log('Auth state changed:', event);
         
-        if (session?.user) {
-          try {
-            const currentUser = await authService.getCurrentUser();
-            console.log('User after auth state change:', currentUser ? 'User loaded' : 'Failed to load user');
-            setUser(currentUser);
-          } catch (error) {
-            console.error('Error getting user after auth state change:', error);
-            setUser(null);
-          }
+        if (session) {
+          await refreshUser();
         } else {
-          console.log('No session, setting user to null');
           setUser(null);
         }
         
@@ -68,12 +70,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signUp = async (email: string, password: string, username: string) => {
     try {
       setLoading(true);
-      console.log('Attempting to sign up user...');
-      await authService.signUp(email, password, username);
-      console.log('Sign up successful');
-      // The auth state change listener will update the user
+      
+      // Create the auth user
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+      
+      if (error) throw error;
+      
+      if (!data.user) {
+        throw new Error('Failed to create user');
+      }
+      
+      // Create the profile
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: data.user.id,
+          username,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        
+      if (profileError) throw profileError;
+      
+      // Refresh the user data
+      await refreshUser();
+      
     } catch (error) {
-      console.error('Sign up error in context:', error);
+      console.error('Sign up error:', error);
       throw error;
     } finally {
       setLoading(false);
@@ -83,12 +109,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signIn = async (email: string, password: string) => {
     try {
       setLoading(true);
-      console.log('Attempting to sign in user...');
-      await authService.signIn(email, password);
-      console.log('Sign in successful');
-      // The auth state change listener will update the user
+      
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      
+      if (error) throw error;
+      
+      // User will be set by the auth state change listener
+      
     } catch (error) {
-      console.error('Sign in error in context:', error);
+      console.error('Sign in error:', error);
       throw error;
     } finally {
       setLoading(false);
@@ -98,12 +130,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     try {
       setLoading(true);
-      console.log('Attempting to sign out user...');
-      await authService.signOut();
-      console.log('Sign out successful');
+      
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) throw error;
+      
       setUser(null);
+      
     } catch (error) {
-      console.error('Sign out error in context:', error);
+      console.error('Sign out error:', error);
       throw error;
     } finally {
       setLoading(false);
@@ -111,7 +146,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const resetPassword = async (email: string) => {
-    await authService.resetPassword(email);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      
+      if (error) throw error;
+      
+    } catch (error) {
+      console.error('Reset password error:', error);
+      throw error;
+    }
   };
 
   const value = {
@@ -120,7 +165,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signUp,
     signIn,
     signOut,
-    resetPassword
+    resetPassword,
+    refreshUser
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
