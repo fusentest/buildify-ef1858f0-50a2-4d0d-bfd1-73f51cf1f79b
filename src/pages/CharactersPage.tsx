@@ -6,6 +6,7 @@ import { seriesService } from '../services/seriesService';
 import { Character } from '../types';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabase';
+import { getSeriesName } from '../lib/utils';
 
 const CharactersPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -43,7 +44,6 @@ const CharactersPage: React.FC = () => {
             series:series_id(id, name, color_code)
           `);
         
-        // We don't filter by series here - we'll get all characters and filter client-side
         const { data, error } = await query.order('name');
         
         if (error) {
@@ -59,7 +59,7 @@ const CharactersPage: React.FC = () => {
     };
 
     fetchCharacters();
-  }, []); // Remove selectedSeries dependency to always fetch all characters
+  }, []); 
 
   // Initialize form values from current filters
   useEffect(() => {
@@ -228,6 +228,7 @@ const CharactersPage: React.FC = () => {
                 onClick={() => {
                   setSearchTerm('');
                   setFormSearchTerm('');
+                  handleApplyFilters();
                 }}
                 className="ml-2 text-blue-600 hover:text-blue-800"
               >
@@ -236,13 +237,14 @@ const CharactersPage: React.FC = () => {
             </span>
           )}
           
-          {selectedSeries && allSeries && (
+          {selectedSeries && (
             <span className="bg-green-100 text-green-800 text-sm px-3 py-1 rounded-full flex items-center">
-              Series: {allSeries.find(s => s.id === selectedSeries)?.name}
+              Series: {allSeries?.find(s => s.id === selectedSeries)?.name || getSeriesName(selectedSeries)}
               <button 
                 onClick={() => {
                   setSelectedSeries(null);
                   setFormSelectedSeries(null);
+                  handleApplyFilters();
                 }}
                 className="ml-2 text-green-600 hover:text-green-800"
               >
@@ -258,6 +260,7 @@ const CharactersPage: React.FC = () => {
                 onClick={() => {
                   setFilter('all');
                   setFormFilter('all');
+                  handleApplyFilters();
                 }}
                 className="ml-2 text-purple-600 hover:text-purple-800"
               >
@@ -313,26 +316,29 @@ interface CharacterCardProps {
 }
 
 const CharacterCard: React.FC<CharacterCardProps> = ({ character }) => {
+  // Fallback color if series data is missing
+  const seriesColor = character.series?.color_code || 
+    (character.series_id ? getSeriesColor(character.series_id) : '#888888');
+  
+  // Fallback series name if series data is missing
+  const seriesName = character.series?.name || 
+    (character.series_id ? getSeriesName(character.series_id) : 'Unknown');
+  
   return (
     <Link 
       to={`/characters/${character.id}`}
       className="bg-white rounded-lg shadow overflow-hidden hover:shadow-md transition-shadow border-t-4"
-      style={{ borderColor: character.series?.color_code }}
+      style={{ borderColor: seriesColor }}
     >
       <div className="p-4">
         <div className="flex justify-between items-start">
           <h3 className="text-lg font-semibold">{character.name}</h3>
-          {character.series && (
-            <span 
-              className="text-xs px-2 py-1 rounded"
-              style={{ 
-                backgroundColor: character.series.color_code,
-                color: 'white'
-              }}
-            >
-              {character.series.name}
-            </span>
-          )}
+          <span 
+            className="text-xs px-2 py-1 rounded text-white"
+            style={{ backgroundColor: seriesColor }}
+          >
+            {seriesName}
+          </span>
         </div>
         
         {character.alias && (
@@ -371,5 +377,27 @@ const CharacterCard: React.FC<CharacterCardProps> = ({ character }) => {
     </Link>
   );
 };
+
+// Helper function to get series color by ID
+function getSeriesColor(seriesId: number): string {
+  switch (seriesId) {
+    case 1: // Classic
+      return '#0088FF';
+    case 2: // X
+      return '#00AA88';
+    case 3: // Zero
+      return '#CC0000';
+    case 4: // ZX
+      return '#FF9900';
+    case 5: // Legends
+      return '#6600CC';
+    case 6: // Battle Network
+      return '#0044CC';
+    case 7: // Star Force
+      return '#9900FF';
+    default:
+      return '#888888';
+  }
+}
 
 export default CharactersPage;
