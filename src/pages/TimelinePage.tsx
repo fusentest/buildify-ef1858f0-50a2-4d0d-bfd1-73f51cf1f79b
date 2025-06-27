@@ -1,12 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { timelineService } from '../services/timelineService';
 import { seriesService } from '../services/seriesService';
 import { TimelineEvent, Series } from '../types';
 import { Button } from '../components/ui/Button';
 import { getSeriesColor } from '../lib/utils';
+import { supabase } from '../lib/supabase';
 
 const TimelinePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -18,27 +17,100 @@ const TimelinePage: React.FC = () => {
   );
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [isOfficialTimeline, setIsOfficialTimeline] = useState<boolean>(true);
+  
+  const [timelines, setTimelines] = useState<any[]>([]);
+  const [timelinesLoading, setTimelinesLoading] = useState(true);
+  
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  
+  const [allSeries, setAllSeries] = useState<Series[]>([]);
+  const [seriesLoading, setSeriesLoading] = useState(true);
 
   // Fetch timelines
-  const { data: timelines, isLoading: timelinesLoading } = useQuery({
-    queryKey: ['timelines', isOfficialTimeline],
-    queryFn: () => timelineService.getTimelines(isOfficialTimeline)
-  });
+  useEffect(() => {
+    const fetchTimelines = async () => {
+      setTimelinesLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('timelines')
+          .select('*')
+          .eq('is_official', isOfficialTimeline);
+          
+        if (error) throw error;
+        
+        setTimelines(data || []);
+      } catch (error) {
+        console.error('Error fetching timelines:', error);
+      } finally {
+        setTimelinesLoading(false);
+      }
+    };
+    
+    fetchTimelines();
+  }, [isOfficialTimeline]);
 
   // Fetch series for filtering
-  const { data: allSeries, isLoading: seriesLoading } = useQuery({
-    queryKey: ['series'],
-    queryFn: seriesService.getAllSeries
-  });
+  useEffect(() => {
+    const fetchSeries = async () => {
+      setSeriesLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('series')
+          .select('*')
+          .order('id');
+          
+        if (error) throw error;
+        
+        setAllSeries(data || []);
+      } catch (error) {
+        console.error('Error fetching series:', error);
+      } finally {
+        setSeriesLoading(false);
+      }
+    };
+    
+    fetchSeries();
+  }, []);
 
   // Fetch timeline events
-  const { data: events, isLoading: eventsLoading } = useQuery({
-    queryKey: ['timelineEvents', timelineId, selectedSeries],
-    queryFn: () => timelineService.getTimelineEvents(
-      parseInt(timelineId),
-      selectedSeries.length === 1 ? selectedSeries[0] : undefined
-    )
-  });
+  useEffect(() => {
+    const fetchEvents = async () => {
+      if (!timelineId) return;
+      
+      setEventsLoading(true);
+      try {
+        let query = supabase
+          .from('timeline_events')
+          .select(`
+            *,
+            series:series_id(id, name, color_code)
+          `)
+          .eq('timeline_id', timelineId);
+          
+        if (selectedSeries.length === 1) {
+          query = query.eq('series_id', selectedSeries[0]);
+        } else if (selectedSeries.length > 1) {
+          query = query.in('series_id', selectedSeries);
+        }
+        
+        // Order by year (as text)
+        query = query.order('year');
+        
+        const { data, error } = await query;
+        
+        if (error) throw error;
+        
+        setEvents(data || []);
+      } catch (error) {
+        console.error('Error fetching timeline events:', error);
+      } finally {
+        setEventsLoading(false);
+      }
+    };
+    
+    fetchEvents();
+  }, [timelineId, selectedSeries]);
 
   // Update URL when filters change
   useEffect(() => {
@@ -140,7 +212,7 @@ const TimelinePage: React.FC = () => {
       </div>
 
       {/* Timeline selector */}
-      {!timelinesLoading && timelines && timelines.length > 0 && (
+      {!timelinesLoading && timelines && timelines.length > 0 ? (
         <div className="bg-white p-4 rounded-lg shadow">
           <h2 className="text-lg font-semibold mb-2">Select Timeline</h2>
           <div className="flex flex-wrap gap-2">
@@ -156,6 +228,14 @@ const TimelinePage: React.FC = () => {
               </Button>
             ))}
           </div>
+        </div>
+      ) : !timelinesLoading ? (
+        <div className="bg-white p-4 rounded-lg shadow text-center">
+          <p className="text-gray-600">No timelines found. Please create a timeline first.</p>
+        </div>
+      ) : (
+        <div className="bg-white p-4 rounded-lg shadow">
+          <p className="text-center">Loading timelines...</p>
         </div>
       )}
 
