@@ -92,13 +92,18 @@ const CharacterDetailPage: React.FC = () => {
             <div className="aspect-w-1 aspect-h-1 bg-gray-200 rounded-lg mb-4 flex items-center justify-center">
               {character.portrait_url ? (
                 <img 
-                  src={character.portrait_url} 
+                  src={character.portrait_url.split('?')[0]} 
                   alt={character.name} 
                   className="object-cover rounded-lg"
+                  onError={(e) => {
+                    // Fallback to placeholder if image fails to load
+                    (e.target as HTMLImageElement).src = `https://via.placeholder.com/300?text=${encodeURIComponent(character.name)}`;
+                  }}
                 />
               ) : (
                 <div className="text-gray-400 text-center p-8">
-                  No portrait available
+                  <div className="text-6xl mb-2">👤</div>
+                  <div>No portrait available</div>
                 </div>
               )}
             </div>

@@ -359,6 +359,9 @@ const CharacterCard: React.FC<CharacterCardProps> = ({ character }) => {
   // Fallback series name if series data is missing
   const seriesName = seriesData?.name || 
     (character.series_id ? getSeriesName(parseInt(character.series_id.toString())) : 'Unknown');
+
+  // Default portrait for characters without one
+  const defaultPortrait = `https://via.placeholder.com/150?text=${encodeURIComponent(character.name)}`;
   
   return (
     <Link 
@@ -366,6 +369,26 @@ const CharacterCard: React.FC<CharacterCardProps> = ({ character }) => {
       className="bg-white rounded-lg shadow overflow-hidden hover:shadow-md transition-shadow border-t-4"
       style={{ borderColor: seriesColor }}
     >
+      {/* Character portrait */}
+      <div className="w-full h-48 overflow-hidden bg-gray-100 flex items-center justify-center">
+        {character.portrait_url ? (
+          <img 
+            src={character.portrait_url.split('?')[0]} // Remove any query parameters
+            alt={character.name}
+            className="w-full h-full object-cover object-center"
+            onError={(e) => {
+              // Fallback to default portrait if image fails to load
+              (e.target as HTMLImageElement).src = defaultPortrait;
+            }}
+          />
+        ) : (
+          <div className="text-gray-400 text-center p-4">
+            <div className="text-4xl mb-2">👤</div>
+            <div className="text-sm">{character.name}</div>
+          </div>
+        )}
+      </div>
+      
       <div className="p-4">
         <div className="flex justify-between items-start">
           <h3 className="text-lg font-semibold">{character.name}</h3>
