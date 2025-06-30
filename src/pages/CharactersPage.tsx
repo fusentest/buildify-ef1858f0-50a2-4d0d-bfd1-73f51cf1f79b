@@ -50,6 +50,7 @@ const CharactersPage: React.FC = () => {
           throw error;
         }
         
+        console.log('Fetched characters:', data);
         setCharacters(data || []);
       } catch (error) {
         console.error('Error fetching characters:', error);
@@ -77,7 +78,7 @@ const CharactersPage: React.FC = () => {
       (character.description && character.description.toLowerCase().includes(searchTerm.toLowerCase()));
     
     // Apply series filter
-    const matchesSeries = selectedSeries ? character.series_id === selectedSeries : true;
+    const matchesSeries = selectedSeries ? parseInt(character.series_id.toString()) === selectedSeries : true;
     
     // Apply character type filter
     let matchesFilter = true;
@@ -121,13 +122,45 @@ const CharactersPage: React.FC = () => {
   };
 
   const handleClearAllFilters = () => {
+    // Reset all filter states
     setSearchTerm('');
     setSelectedSeries(null);
     setFilter('all');
+    
+    // Reset form states
     setFormSearchTerm('');
     setFormSelectedSeries(null);
     setFormFilter('all');
+    
+    // Clear URL parameters
     navigate('/characters');
+    
+    // Refresh character list
+    const fetchCharacters = async () => {
+      setLoading(true);
+      try {
+        let query = supabase
+          .from('characters')
+          .select(`
+            *,
+            series:series_id(id, name, color_code)
+          `);
+        
+        const { data, error } = await query.order('name');
+        
+        if (error) {
+          throw error;
+        }
+        
+        setCharacters(data || []);
+      } catch (error) {
+        console.error('Error fetching characters:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCharacters();
   };
 
   const isLoading = loading || seriesLoading;
@@ -316,13 +349,16 @@ interface CharacterCardProps {
 }
 
 const CharacterCard: React.FC<CharacterCardProps> = ({ character }) => {
+  // Get series data, handling both nested and direct formats
+  const seriesData = character.series || null;
+  
   // Fallback color if series data is missing
-  const seriesColor = character.series?.color_code || 
-    (character.series_id ? getSeriesColor(character.series_id) : '#888888');
+  const seriesColor = seriesData?.color_code || 
+    (character.series_id ? getSeriesColor(parseInt(character.series_id.toString())) : '#888888');
   
   // Fallback series name if series data is missing
-  const seriesName = character.series?.name || 
-    (character.series_id ? getSeriesName(character.series_id) : 'Unknown');
+  const seriesName = seriesData?.name || 
+    (character.series_id ? getSeriesName(parseInt(character.series_id.toString())) : 'Unknown');
   
   return (
     <Link 
