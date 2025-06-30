@@ -1,11 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 
 const SignUpPage: React.FC = () => {
-  const { signUp } = useAuth();
+  const { signUp, user } = useAuth();
   const navigate = useNavigate();
   
   const [email, setEmail] = useState('');
@@ -14,6 +14,14 @@ const SignUpPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  // Redirect if user is already logged in
+  useEffect(() => {
+    if (user) {
+      navigate('/');
+    }
+  }, [user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,12 +45,25 @@ const SignUpPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
       
+      console.log('Attempting to sign up with:', email, username);
       await signUp(email, password, username);
-      navigate('/');
+      
+      setSuccess(true);
+      
+      // Short delay before redirecting to show success message
+      setTimeout(() => {
+        navigate('/');
+      }, 1500);
       
     } catch (err: any) {
       console.error('Sign up error:', err);
-      setError(err?.message || 'Failed to sign up. Please try again.');
+      
+      // Handle specific error messages
+      if (err.message?.includes('already registered')) {
+        setError('This email is already registered. Please sign in instead.');
+      } else {
+        setError(err?.message || 'Failed to sign up. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -64,6 +85,12 @@ const SignUpPage: React.FC = () => {
           </div>
         )}
         
+        {success && (
+          <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-md">
+            Account created successfully! Redirecting...
+          </div>
+        )}
+        
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
@@ -76,6 +103,7 @@ const SignUpPage: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              disabled={isLoading || success}
             />
           </div>
           
@@ -90,6 +118,7 @@ const SignUpPage: React.FC = () => {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
+              disabled={isLoading || success}
             />
           </div>
           
@@ -104,6 +133,7 @@ const SignUpPage: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              disabled={isLoading || success}
             />
             <p className="mt-1 text-xs text-gray-500">
               Must be at least 6 characters
@@ -121,6 +151,7 @@ const SignUpPage: React.FC = () => {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
+              disabled={isLoading || success}
             />
           </div>
           
@@ -128,9 +159,9 @@ const SignUpPage: React.FC = () => {
             variant="megamanBlue" 
             type="submit" 
             className="w-full"
-            disabled={isLoading}
+            disabled={isLoading || success}
           >
-            {isLoading ? 'Creating account...' : 'Sign Up'}
+            {isLoading ? 'Creating account...' : success ? 'Account Created!' : 'Sign Up'}
           </Button>
         </form>
         
@@ -158,6 +189,7 @@ const SignUpPage: React.FC = () => {
       </div>
     </div>
   );
+};
 };
 
 export default SignUpPage;

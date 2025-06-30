@@ -1,17 +1,25 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 
 const SignInPage: React.FC = () => {
-  const { signIn } = useAuth();
+  const { signIn, user } = useAuth();
   const navigate = useNavigate();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  // Redirect if user is already logged in
+  useEffect(() => {
+    if (user) {
+      navigate('/');
+    }
+  }, [user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,12 +33,27 @@ const SignInPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
       
+      console.log('Attempting to sign in with:', email);
       await signIn(email, password);
-      navigate('/');
+      
+      setSuccess(true);
+      
+      // Short delay before redirecting to show success message
+      setTimeout(() => {
+        navigate('/');
+      }, 1000);
       
     } catch (err: any) {
       console.error('Sign in error:', err);
-      setError(err?.message || 'Invalid email or password');
+      
+      // Handle specific error messages
+      if (err.message?.includes('Invalid login credentials')) {
+        setError('Invalid email or password. Please try again.');
+      } else if (err.message?.includes('Email not confirmed')) {
+        setError('Please confirm your email address before signing in.');
+      } else {
+        setError(err?.message || 'An error occurred during sign in. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -52,6 +75,12 @@ const SignInPage: React.FC = () => {
           </div>
         )}
         
+        {success && (
+          <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-md">
+            Sign in successful! Redirecting...
+          </div>
+        )}
+        
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
@@ -64,6 +93,7 @@ const SignInPage: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              disabled={isLoading || success}
             />
           </div>
           
@@ -78,6 +108,7 @@ const SignInPage: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              disabled={isLoading || success}
             />
           </div>
           
@@ -91,9 +122,9 @@ const SignInPage: React.FC = () => {
             variant="megamanBlue" 
             type="submit" 
             className="w-full"
-            disabled={isLoading}
+            disabled={isLoading || success}
           >
-            {isLoading ? 'Signing in...' : 'Sign In'}
+            {isLoading ? 'Signing in...' : success ? 'Signed In!' : 'Sign In'}
           </Button>
         </form>
         
@@ -106,8 +137,19 @@ const SignInPage: React.FC = () => {
           </p>
         </div>
       </div>
+      
+      <div className="mt-4 text-center text-sm text-gray-500">
+        <p>
+          For testing, you can use: <br />
+          Email: test@example.com <br />
+          Password: password123
+        </p>
+      </div>
     </div>
   );
+};
+
+export default SignInPage;
 };
 
 export default SignInPage;
