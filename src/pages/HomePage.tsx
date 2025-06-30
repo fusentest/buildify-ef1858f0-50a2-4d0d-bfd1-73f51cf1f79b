@@ -1,15 +1,52 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { seriesService } from '../services/seriesService';
+import { supabase } from '../lib/supabase';
 import { Button } from '../components/ui/Button';
 
 const HomePage: React.FC = () => {
-  const { data: series, isLoading } = useQuery({
-    queryKey: ['series'],
-    queryFn: seriesService.getAllSeries
-  });
+  const [series, setSeries] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchSeries = async () => {
+      try {
+        setIsLoading(true);
+        const { data, error } = await supabase
+          .from('series')
+          .select('*')
+          .order('id');
+        
+        if (error) {
+          throw error;
+        }
+        
+        setSeries(data || []);
+      } catch (err) {
+        console.error('Error fetching series:', err);
+        setError('Failed to load series data. Please try again later.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchSeries();
+  }, []);
+
+  if (error) {
+    return (
+      <div className="text-center py-8 text-red-500">
+        <p>{error}</p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-12">
@@ -47,7 +84,7 @@ const HomePage: React.FC = () => {
           <div className="text-center py-8">Loading series data...</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {series?.map((s) => (
+            {series.map((s) => (
               <div 
                 key={s.id} 
                 className="border rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow"
