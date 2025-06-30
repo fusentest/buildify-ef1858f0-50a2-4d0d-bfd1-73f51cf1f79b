@@ -17,6 +17,7 @@ import CreateLorePage from './pages/CreateLorePage';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
 import ProfilePage from './pages/ProfilePage';
+import ApiKeyManagementPage from './pages/ApiKeyManagementPage';
 import NotFoundPage from './pages/NotFoundPage';
 import './App.css';
 
@@ -40,6 +41,7 @@ function App() {
             <Route path="sign-in" element={<SignInPage />} />
             <Route path="sign-up" element={<SignUpPage />} />
             <Route path="profile" element={<ProfilePage />} />
+            <Route path="api-keys" element={<ApiKeyManagementPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
