@@ -55,7 +55,7 @@ const Navbar: React.FC = () => {
               </div>
             ) : (
               <div className="flex items-center space-x-2">
-                <Link to="/signin">
+                <Link to="/sign-in">
                   <Button 
                     variant="outline"
                     className="border-white text-white hover:bg-blue-800"
@@ -63,7 +63,7 @@ const Navbar: React.FC = () => {
                     Sign In
                   </Button>
                 </Link>
-                <Link to="/signup">
+                <Link to="/sign-up">
                   <Button 
                     variant="megamanBlue"
                     className="border border-white"
@@ -164,14 +164,14 @@ const Navbar: React.FC = () => {
             ) : (
               <>
                 <Link
-                  to="/signin"
+                  to="/sign-in"
                   className="block px-3 py-2 rounded-md hover:bg-blue-700"
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Sign In
                 </Link>
                 <Link
-                  to="/signup"
+                  to="/sign-up"
                   className="block px-3 py-2 rounded-md hover:bg-blue-700"
                   onClick={() => setMobileMenuOpen(false)}
                 >
